@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+    <name>titan_canmore</name>
+    <version>2.0.0</version>
+    <description>Library implementing the CANmore Protocol used on OSU UWRT's CAN Bus</description>
+    <maintainer email="osu.uwrt@gmail.com">OSU UWRT</maintainer>
+    <license>BSD</license>
+    <url type="repository">https://github.com/osu-uwrt/titan_canmore</url>
+    <author email="pafford.9@osu.edu">Robert Pafford</author>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <test_depend>ament_lint_auto</test_depend>
+    <test_depend>ament_lint_common</test_depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+</package>
