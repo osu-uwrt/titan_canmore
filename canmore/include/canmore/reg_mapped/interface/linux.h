@@ -92,15 +92,19 @@ extern "C" {
  *       +----------------+
  * 0x01: |  Window Size   | RW
  *       +----------------+
+ * 0x02: | Use Upload Dir | RW
+ *       +----------------+
  *
  * Enable:          Writing 1 to this register will initialize the remote tty session. Writing 0 will kill the session.
  * Window Size:     Sets the TTY's initial window size. Lower 16-bits are num cols, upper 16-bits are num rows.
+ * Use Upload Dir:  Runs the TTY from the uploader's current directory, rather than the user's home directory
  *
  */
 
 // TTY Control Definitions
 #define CANMORE_LINUX_TTY_CONTROL_ENABLE_OFFSET 0x00
 #define CANMORE_LINUX_TTY_CONTROL_WINDOW_SIZE_OFFSET 0x01
+#define CANMORE_LINUX_TTY_CONTROL_USE_UPLOAD_DIR_OFFSET 0x02
 
 /* TTY Terminal
  * ============
