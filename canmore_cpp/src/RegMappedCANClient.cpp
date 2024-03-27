@@ -9,7 +9,7 @@ RegMappedCANClient::RegMappedCANClient(int ifIndex, uint8_t clientId, uint8_t ch
     // Configure filter for specific client/channel
     struct can_filter rfilter[] = { { .can_id = CANMORE_CALC_UTIL_ID_C2A(clientId, channel),
                                       .can_mask = (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_SFF_MASK) } };
-    setRxFilters(std::span { rfilter });
+    setRxFilters(std::span<struct can_filter> { rfilter });
 
     // Configure reg_mapped_client struct for linuxmappings
     clientCfg.tx_func = &clientTxCB;
