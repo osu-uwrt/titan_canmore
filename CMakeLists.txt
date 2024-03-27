@@ -5,6 +5,7 @@ project(titan_canmore VERSION 2.0.0 DESCRIPTION "Library implementing the CANmor
 # Only define ament package if we're a top level include
 if(PROJECT_IS_TOP_LEVEL)
     find_package(ament_cmake REQUIRED)
+    set(CMAKE_CXX_STANDARD 17)
 endif()
 
 # Include all the libraries we want

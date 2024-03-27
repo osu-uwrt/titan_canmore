@@ -221,7 +221,8 @@ void CANSocket::handleEvent(const pollfd &fd) {
             handleFrame(canu.fdframe.can_id, std::span<const uint8_t>(canu.fdframe.data, canu.fdframe.len));
         }
         else if (readSize == sizeof(canu.frame)) {
-            handleFrame(canu.frame.can_id, std::span<const uint8_t>(canu.frame.data, canu.frame.len));
+            // Needs to be can_dlc (deprected) because NVIDIA
+            handleFrame(canu.frame.can_id, std::span<const uint8_t>(canu.frame.data, canu.frame.can_dlc));
         }
         else if (readSize == 0) {
             throw std::runtime_error("CAN socket reporting end of file");
