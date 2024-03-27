@@ -3,6 +3,7 @@ if (NOT DEFINED PICO_ON_DEVICE)
     add_library(canmore_cpp STATIC)
     set_target_properties(canmore_cpp PROPERTIES VERSION "${PROJECT_VERSION}")
     set_target_properties(canmore_cpp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    set_target_properties(canmore_cpp PROPERTIES CXX_STANDARD 17)
 
     target_sources(canmore_cpp PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src/RegMappedClient.cpp
