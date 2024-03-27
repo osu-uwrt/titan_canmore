@@ -16,11 +16,11 @@ MsgAgent::MsgAgent(int ifIndex, AgentMsgHandler &handler, std::span<const uint8_
             { .can_id = CAN_EFF_FLAG | CANMORE_CALC_MSG_EXT_ID(0, 0, 0, 0),
               .can_mask = (CAN_EFF_FLAG | CAN_RTR_FLAG | CANMORE_CALC_EXT_FILTER_MASK(0, 1, 0, 0, 0)) },
         };
-        setRxFilters(std::span { rfilter });
+        setRxFilters(std::span<can_filter> { rfilter });
     }
     else {
         // Create RX filters for each client requested
-        std::vector<struct can_filter> filterArray;
+        std::vector<can_filter> filterArray;
         filterArray.reserve(clientIdSelect.size() * 2);
         for (uint8_t clientId : clientIdSelect) {
             filterArray.push_back({ .can_id = CANMORE_CALC_MSG_ID(clientId, 0, 0),
@@ -72,12 +72,13 @@ void MsgAgent::transmitMessage(uint8_t clientId, uint8_t subtype, std::span<cons
             canId |= CAN_EFF_FLAG;
         }
 
-        transmitFrame(canId, std::span { frameBuf.data(), frameSize });
+        transmitFrame(canId, std::span<const uint8_t> { frameBuf.data(), frameSize });
     } while (!canmore_msg_encode_done(&encoder));
 }
 
 void MsgAgent::handleFrame(canid_t can_id, const std::span<const uint8_t> &data) {
-    if (can_id == 0x7FF) abort();
+    if (can_id == 0x7FF)
+        abort();
 
     bool isExtended = !!(can_id & CAN_EFF_FLAG);
     canmore_id_t id = { .identifier = can_id };
@@ -123,6 +124,6 @@ void MsgAgent::handleFrame(canid_t can_id, const std::span<const uint8_t> &data)
     if (decodeLen > 0) {
         uint8_t subtype = canmore_msg_decode_get_subtype(&decoder);
         uint8_t *msgBuf = canmore_msg_decode_get_buf(&decoder);
-        handler.handleMessage(clientId, subtype, std::span { msgBuf, decodeLen });
+        handler.handleMessage(clientId, subtype, std::span<const uint8_t> { msgBuf, decodeLen });
     }
 }

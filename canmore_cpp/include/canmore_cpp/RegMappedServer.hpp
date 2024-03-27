@@ -249,7 +249,7 @@ public:
         struct can_filter rfilter[] = { { .can_id = CANMORE_CALC_UTIL_ID_A2C(clientId, channel),
                                           .can_mask = (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_SFF_MASK) } };
 
-        setRxFilters(std::span<struct can_filter> { rfilter });
+        setRxFilters(std::span<can_filter> { rfilter });
     }
 
     const uint8_t clientId;

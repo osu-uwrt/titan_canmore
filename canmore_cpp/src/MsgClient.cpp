@@ -19,7 +19,7 @@ MsgClient::MsgClient(int ifIndex, uint8_t clientId, ClientMsgHandler &handler):
         { .can_id = CAN_EFF_FLAG | CANMORE_CALC_MSG_EXT_ID_A2C(clientId, 0, 0),
           .can_mask = (CAN_EFF_FLAG | CAN_RTR_FLAG | CANMORE_CALC_EXT_FILTER_MASK(1, 1, 1, 0, 0)) },
     };
-    setRxFilters(std::span { rfilter });
+    setRxFilters(std::span<can_filter> { rfilter });
 }
 
 void MsgClient::transmitMessage(uint8_t subtype, std::span<const uint8_t> data) {
@@ -45,7 +45,7 @@ void MsgClient::transmitMessage(uint8_t subtype, std::span<const uint8_t> data) 
             canId |= CAN_EFF_FLAG;
         }
 
-        transmitFrame(canId, std::span { frameBuf.data(), frameSize });
+        transmitFrame(canId, std::span<const uint8_t> { frameBuf.data(), frameSize });
     } while ((!canmore_msg_encode_done(&encoder)));
 }
 
@@ -60,6 +60,6 @@ void MsgClient::handleFrame(canid_t canId, const std::span<const uint8_t> &data)
     if (decodeLen > 0) {
         uint8_t subtype = canmore_msg_decode_get_subtype(&decoder);
         uint8_t *msgBuf = canmore_msg_decode_get_buf(&decoder);
-        handler.handleMessage(subtype, std::span { msgBuf, decodeLen });
+        handler.handleMessage(subtype, std::span<const uint8_t> { msgBuf, decodeLen });
     }
 }
