@@ -83,7 +83,10 @@ protected:
     /*
      * Overrides for PollFD - Implemented by this class
      */
+public:
     void populateFds(std::vector<std::weak_ptr<PollFDDescriptor>> &descriptors) override;
+
+protected:
     void handleEvent(const pollfd &fd) override;
 
     /**

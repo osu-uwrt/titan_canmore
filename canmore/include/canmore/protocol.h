@@ -404,7 +404,7 @@ typedef union __attribute__((__packed__)) canmore_id {
 
 // Utility Channel Assignments
 #define CANMORE_CHAN_THRUSTER_CMDS 0
-#define CANMORE_CHAN_UNDERWATER_CAM 12
+#define CANMORE_CHAN_CAMERA_FEED 12
 #define CANMORE_CHAN_REMOTE_TTY 13
 #define CANMORE_CHAN_CONTROL_INTERFACE 14
 #define CANMORE_CONTROL_INTERFACE_BOOTLOADER_REQUEST                                                                   \

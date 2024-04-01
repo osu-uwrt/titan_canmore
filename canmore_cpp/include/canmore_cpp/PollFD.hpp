@@ -141,19 +141,21 @@ public:
      * however timeoutMs not will have yet elapsed.
      *
      * @param timeoutMs The maximum timeout to wait. 0 will return immediately, a negative number blocks indefinitely.
+     *
+     * @return bool True if an event has been processed, or the poll was interrupted by a signal
      */
-    void processEvent(int timeoutMs) {
+    bool processEvent(int timeoutMs) {
         // Refresh the fds_ (enabling/disabling as requested) before calling poll
         refreshFdConfig();
 
         int rc = poll(fds_.data(), fds_.size(), timeoutMs);
         if (rc == 0) {
-            return;
+            return false;
         }
         if (rc < 0) {
             if (errno == EINTR) {
                 // Signal handle fired while waiting, just return, almost like an event fired
-                return;
+                return true;
             }
             else {
                 throw std::system_error(errno, std::generic_category(), "poll");
@@ -195,6 +197,7 @@ public:
                 descrItr++;
             }
         }
+        return true;
     }
 
 private:

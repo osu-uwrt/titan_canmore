@@ -18,6 +18,6 @@ uint32_t crc32_update(const uint8_t *data, size_t len, uint32_t original_crc32) 
 }
 
 uint32_t crc32_compute(const uint8_t *data, size_t len) {
-    uint32_t crc32 = 0xFFFFFFFF;
+    uint32_t crc32 = CRC32_INITIAL_VALUE;
     return crc32_update(data, len, crc32);
 }

@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define CRC32_INITIAL_VALUE 0xFFFFFFFF
+
 /**
  * @brief Updates the original_crc32 with the contents of the provided buffer
  *
