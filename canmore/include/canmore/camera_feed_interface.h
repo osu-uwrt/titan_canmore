@@ -169,8 +169,10 @@ static_assert(sizeof(canmore_camera_feed_last_frame) == CANMORE_CAMERA_FEED_LAST
 #define CANMORE_CAMERA_FEED_CMD_ENABLE 0
 #define CANMORE_CAMERA_FEED_CMD_STREAM_ID 1
 #define CANMORE_CAMERA_FEED_CMD_QUALITY 2
+#define CANMORE_CAMERA_FEED_CMD_MAX_DIMENSION 3
+#define CANMORE_CAMERA_FEED_CMD_KEYPRESS 4
 
-#define CANMORE_CAMERA_FEED_CMD_MAX_LEN 2
+#define CANMORE_CAMERA_FEED_CMD_MAX_LEN 3
 
 // Camera feed command struct
 typedef union canmore_camera_feed_cmd {
@@ -181,6 +183,8 @@ typedef union canmore_camera_feed_cmd {
             uint8_t enable;
             uint8_t stream_id;
             uint8_t quality;
+            uint16_t max_dimension;
+            uint8_t keypress;
         } data;
     } pkt;
 } canmore_camera_feed_cmd_t;
