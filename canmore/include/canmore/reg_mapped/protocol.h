@@ -133,6 +133,13 @@ extern "C" {
  *   | Flags  | Count  |  Page  | Offset |             Data Word             |
  *   +--------+--------+--------+--------+--------+--------+--------+--------+
  *
+ * Multiword Write Request Structure:
+ *   +--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----+
+ *   | Byte 0 | Byte 1 | Byte 2 | Byte 3 | Byte 4 | Byte 5 | Byte 6 | Byte 7 | Byte 4 | Byte 5 | Byte 6 | Byte 7 | ... |
+ *   +--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----+
+ *   | Flags  | Count  |  Page  | Offset |           Data Word 0             |           Data Word 1             | ... |
+ *   +--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----+
+ *
  * Field Definitions:
  *
  * Flags:
@@ -148,7 +155,9 @@ extern "C" {
  *   E (Bulk End): Set to 1 if the last transfer in a bulk request, 0 if not last request or not a bulk request
  *   M (Multiword): Set to 1 if multiple data words are being written
  *
- * Count: The number of words to read/write if If bulk request, an increasing counter for the bulk request
+ * Count:
+ *  If multiword: the number of words to read/write.
+ *  If bulk request: An increasing counter for the bulk request
  *
  * Reg Address: The 16-bit address for the register to access in little-endian. This is defined by the higher-level
  * protocol Data Word (Only if W=1): The 32-bit word to write in little-endian format
@@ -184,6 +193,13 @@ extern "C" {
  *   | Result |             Data Word             |
  *   +--------+--------+--------+--------+--------+
  *
+ * Multiword Read Resonse Structure
+ *   +--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----+
+ *   | Byte 0 | Byte 1 | Byte 2 | Byte 3 | Byte 4 | Byte 5 | Byte 6 | Byte 6 | Byte 7 | Byte 8 | ... |
+ *   +--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----+
+ *   | Result | Seq No |           Data Word 0             |           Data Word 1             | ... |
+ *   +--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----+
+ *
  * Result: The result from the previous requst:
  *   0: Successful
  *   1: Malformed Request
@@ -197,7 +213,9 @@ extern "C" {
  * Seq No: The last sequence number received from the agent if successful, or the sequence number the error occurred on
  * (all subsequent requests ignored)
  *
- * Data Word: The 32-bit word read from the register in little-endian if successful, or 0 if an error occurred
+ * Data Word:
+ *   If Read: The 32-bit word read from the register in little-endian if successful, or 0 if an error occurred
+ *   If Multiword Read: If successful, n words (determined by Count). If unsuccessful, this may or may not be present
  */
 
 union reg_mapped_request_flags {
@@ -213,26 +231,40 @@ union reg_mapped_request_flags {
 };
 static_assert(sizeof(union reg_mapped_request_flags) == 1, "Struct did not pack properly");
 
-#define REG_MAPPED_MAX_REQUEST_SIZE 8
+struct reg_mapped_write_request {
+    union reg_mapped_request_flags flags;
+    uint8_t count;
+    uint8_t page;
+    uint8_t offset;
+    uint32_t data;
+} __attribute__((packed));
+
+struct reg_mapped_read_request {
+    union reg_mapped_request_flags flags;
+    uint8_t count;
+    uint8_t page;
+    uint8_t offset;
+} __attribute__((packed));
+
+struct reg_mapped_multiword_write_request {
+    union reg_mapped_request_flags flags;
+    uint8_t count;
+    uint8_t page;
+    uint8_t offset;
+    uint32_t data[];
+} __attribute__((packed));
 
 typedef union reg_mapped_request {
-    uint8_t data[REG_MAPPED_MAX_REQUEST_SIZE];
-    struct reg_mapped_write_request {
-        union reg_mapped_request_flags flags;
-        uint8_t count;
-        uint8_t page;
-        uint8_t offset;
-        uint32_t data;
-    } __attribute__((packed)) write_pkt;
-
-    struct reg_mapped_read_request {
-        union reg_mapped_request_flags flags;
-        uint8_t count;
-        uint8_t page;
-        uint8_t offset;
-    } __attribute__((packed)) read_pkt;
+    uint8_t data[1];
+    struct reg_mapped_write_request write_pkt;
+    struct reg_mapped_read_request read_pkt;
+    struct reg_mapped_multiword_write_request multiword_write_pkt;
 } reg_mapped_request_t;
-static_assert(sizeof(reg_mapped_request_t) == REG_MAPPED_MAX_REQUEST_SIZE, "Struct did not pack properly");
+
+#define REG_MAPPED_COMPUTE_MULTIWORD_REQ_LEN(word_count)                                                               \
+    (sizeof(struct reg_mapped_multiword_write_request) + (sizeof(uint32_t) * (word_count)))
+#define REG_MAPPED_COMPUTE_MAX_REQ_WORD_COUNT(buffer_len)                                                              \
+    ((((unsigned int) (buffer_len)) - sizeof(struct reg_mapped_multiword_write_request)) / sizeof(uint32_t))
 
 #define REG_MAPPED_RESULT_SUCCESSFUL 0
 #define REG_MAPPED_RESULT_MALFORMED_REQUEST 1
@@ -241,10 +273,17 @@ static_assert(sizeof(reg_mapped_request_t) == REG_MAPPED_MAX_REQUEST_SIZE, "Stru
 #define REG_MAPPED_RESULT_INVALID_REGISTER_MODE 4
 #define REG_MAPPED_RESULT_INVALID_DATA 5
 #define REG_MAPPED_RESULT_INVALID_MODE 6
+#define REG_MAPPED_RESULT_MULTIWORD_UNSUPPORTED 7
+#define REG_MAPPED_RESULT_MULTIWORD_TOO_LARGE 8
 
-#define REG_MAPPED_MAX_RESPONSE_SIZE 5
+struct reg_mapped_multiword_read_response {
+    uint8_t result;
+    uint32_t data[];
+} __attribute__((packed));
+
 typedef union reg_mapped_response {
-    uint8_t data[REG_MAPPED_MAX_REQUEST_SIZE];
+    uint8_t data[1];
+
     struct __attribute__((packed)) {
         uint8_t result;
     } write_pkt;
@@ -258,7 +297,13 @@ typedef union reg_mapped_response {
         uint8_t result;
         uint32_t data;
     } read_pkt;
+
+    struct reg_mapped_multiword_read_response multiword_read_pkt;
 } reg_mapped_response_t;
+#define REG_MAPPED_COMPUTE_MULTIWORD_RESP_LEN(word_count)                                                              \
+    (sizeof(struct reg_mapped_multiword_read_response) + (sizeof(uint32_t) * (word_count)))
+#define REG_MAPPED_COMPUTE_MAX_RESP_WORD_COUNT(buffer_len)                                                             \
+    ((((unsigned int) (buffer_len)) - sizeof(struct reg_mapped_multiword_read_response)) / sizeof(uint32_t))
 
 #define REG_MAPPED_PAGE_NUM_WORDS 0x100
 #define REG_MAPPED_PAGE_SIZE (REG_MAPPED_PAGE_NUM_WORDS * 4)

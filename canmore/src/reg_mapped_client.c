@@ -1,6 +1,8 @@
 #include "canmore/reg_mapped/client.h"
 #include "canmore/reg_mapped/protocol.h"
 
+#include <string.h>
+
 int reg_mapped_client_read_register(const reg_mapped_client_cfg_t *cfg, uint8_t page, uint8_t offset,
                                     uint32_t *data_out) {
     reg_mapped_request_t req = { .read_pkt = {
@@ -57,7 +59,7 @@ int reg_mapped_client_write_register(const reg_mapped_client_cfg_t *cfg, uint8_t
 int reg_mapped_client_write_array(const reg_mapped_client_cfg_t *cfg, uint8_t page, uint8_t offset_start,
                                   const uint32_t *data_array, uint8_t num_words) {
     // Make sure we don't cross the page boundary
-    if (((unsigned int) offset_start) + num_words > 0x100) {
+    if (((unsigned int) offset_start) + num_words > REG_MAPPED_PAGE_NUM_WORDS) {
         return REG_MAPPED_CLIENT_RESULT_INVALID_ARG;
     }
 
@@ -65,7 +67,60 @@ int reg_mapped_client_write_array(const reg_mapped_client_cfg_t *cfg, uint8_t pa
         return REG_MAPPED_CLIENT_RESULT_RX_CLEAR_FAIL;
     }
 
-    if (cfg->transfer_mode == TRANSFER_MODE_BULK) {
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+    if (cfg->transfer_mode == TRANSFER_MODE_MULTIWORD) {
+        reg_mapped_request_t *req = (reg_mapped_request_t *) cfg->multiword_scratch_buffer;
+
+        // Compute batch size, and make sure the request is capable of carrying at least 1 word
+        if (cfg->multiword_scratch_len < sizeof(struct reg_mapped_multiword_write_request)) {
+            return REG_MAPPED_CLIENT_RESULT_MULTIWORD_ALLOC_TOO_SMALL;
+        }
+        size_t max_req_count = REG_MAPPED_COMPUTE_MAX_REQ_WORD_COUNT(cfg->multiword_scratch_len);
+        if (max_req_count < 1) {
+            return REG_MAPPED_CLIENT_RESULT_MULTIWORD_ALLOC_TOO_SMALL;
+        }
+
+        // This part of the request remains constant
+        req->multiword_write_pkt.flags.data = 0;
+        req->multiword_write_pkt.flags.f.write = true;
+        req->multiword_write_pkt.flags.f.multiword = true;
+        req->multiword_write_pkt.flags.f.mode = cfg->control_interface_mode;
+        req->multiword_write_pkt.page = page;
+
+        uint8_t offset = offset_start;
+        uint8_t remaining_words = num_words;
+        while (remaining_words > 0) {
+            uint8_t count = (remaining_words > max_req_count ? max_req_count : remaining_words);
+
+            // Construct request
+            req->multiword_write_pkt.count = count;
+            req->multiword_write_pkt.offset = offset;
+            memcpy(req->multiword_write_pkt.data, &data_array[offset], count * sizeof(*data_array));
+
+            // Send this packet
+            if (!cfg->tx_func(req->data, REG_MAPPED_COMPUTE_MULTIWORD_REQ_LEN(count), cfg->arg)) {
+                return REG_MAPPED_CLIENT_RESULT_TX_FAIL;
+            }
+
+            // Get the response
+            reg_mapped_response_t resp;
+            if (!cfg->rx_func(resp.data, sizeof(resp.write_pkt), cfg->timeout_ms, cfg->arg)) {
+                return REG_MAPPED_CLIENT_RESULT_RX_FAIL;
+            }
+
+            // Check for errors in the response
+            if (resp.write_pkt.result != REG_MAPPED_RESULT_SUCCESSFUL) {
+                return resp.write_pkt.result;
+            }
+
+            // Note this packet and keep transferring
+            offset += count;
+            remaining_words -= count;
+        }
+    }
+    else
+#endif
+        if (cfg->transfer_mode == TRANSFER_MODE_BULK) {
         reg_mapped_request_t req = { .write_pkt = {
                                          .flags = { .f = { .write = true,
                                                            .bulk_req = true,
@@ -132,19 +187,77 @@ int reg_mapped_client_write_array(const reg_mapped_client_cfg_t *cfg, uint8_t pa
 int reg_mapped_client_read_array(const reg_mapped_client_cfg_t *cfg, uint8_t page, uint8_t offset_start,
                                  uint32_t *data_array, unsigned int num_words) {
     // Make sure we don't cross the page boundary
-    if (((unsigned int) offset_start) + num_words > 0x100) {
+    if (((unsigned int) offset_start) + num_words > REG_MAPPED_PAGE_NUM_WORDS) {
         return REG_MAPPED_CLIENT_RESULT_INVALID_ARG;
     }
 
-    // TRANSFER_MODE_BULK does not support optimized reads
-    // Fallback to single transfers
-    uint8_t offset = offset_start;
-    for (unsigned int i = 0; i < num_words; i++) {
-        int ret = reg_mapped_client_read_register(cfg, page, offset++, data_array++);
-        if (ret != REG_MAPPED_RESULT_SUCCESSFUL) {
-            return ret;
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+    if (cfg->transfer_mode == TRANSFER_MODE_MULTIWORD) {
+        reg_mapped_request_t req;
+        reg_mapped_response_t *resp = (reg_mapped_response_t *) cfg->multiword_scratch_buffer;
+
+        // Compute batch size, and make sure the response is capable of carrying at least 1 word
+        if (cfg->multiword_scratch_len < sizeof(struct reg_mapped_multiword_read_response)) {
+            return REG_MAPPED_CLIENT_RESULT_MULTIWORD_ALLOC_TOO_SMALL;
+        }
+        size_t max_req_count = REG_MAPPED_COMPUTE_MAX_RESP_WORD_COUNT(cfg->multiword_scratch_len);
+        if (max_req_count < 1) {
+            return REG_MAPPED_CLIENT_RESULT_MULTIWORD_ALLOC_TOO_SMALL;
+        }
+
+        // This part of the request remains constant
+        req.read_pkt.flags.data = 0;
+        req.read_pkt.flags.f.multiword = true;
+        req.read_pkt.flags.f.mode = cfg->control_interface_mode;
+        req.read_pkt.page = page;
+
+        uint8_t offset = offset_start;
+        uint8_t remaining_words = num_words;
+        while (remaining_words > 0) {
+            uint8_t count = (remaining_words > max_req_count ? max_req_count : remaining_words);
+
+            // Construct request
+            req.read_pkt.count = count;
+            req.read_pkt.offset = offset;
+
+            // Send this packet
+            if (!cfg->tx_func(req.data, sizeof(req.read_pkt), cfg->arg)) {
+                return REG_MAPPED_CLIENT_RESULT_TX_FAIL;
+            }
+
+            // Get the response
+            size_t resp_len = REG_MAPPED_COMPUTE_MULTIWORD_RESP_LEN(count);
+            if (!cfg->rx_func(resp->data, resp_len, cfg->timeout_ms, cfg->arg)) {
+                return REG_MAPPED_CLIENT_RESULT_RX_FAIL;
+            }
+
+            // Check for errors in the response
+            if (resp->multiword_read_pkt.result != REG_MAPPED_RESULT_SUCCESSFUL) {
+                return resp->multiword_read_pkt.result;
+            }
+
+            // Copy the data into the output buffer
+            memcpy(&data_array[offset], resp->multiword_read_pkt.data, count * sizeof(*data_array));
+
+            // Note this packet and keep transferring
+            offset += count;
+            remaining_words -= count;
         }
     }
+    else {
+#endif
+        // TRANSFER_MODE_BULK does not support optimized reads
+        // Fallback to single transfers
+        uint8_t offset = offset_start;
+        for (unsigned int i = 0; i < num_words; i++) {
+            int ret = reg_mapped_client_read_register(cfg, page, offset++, data_array++);
+            if (ret != REG_MAPPED_RESULT_SUCCESSFUL) {
+                return ret;
+            }
+        }
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+    }
+#endif
 
     return REG_MAPPED_RESULT_SUCCESSFUL;
 }
@@ -165,7 +278,7 @@ int reg_mapped_client_read_string_page(const reg_mapped_client_cfg_t *cfg, uint8
 
     // Limit to read up to an entire page
     unsigned int word_num = 0;
-    for (word_num = 0; word_num < 0x100; word_num++) {
+    for (word_num = 0; word_num < REG_MAPPED_PAGE_NUM_WORDS; word_num++) {
         union {
             uint32_t word;
             uint8_t bytes[4];

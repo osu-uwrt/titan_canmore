@@ -40,7 +40,9 @@ RegMappedEthernetClient::RegMappedEthernetClient(struct in_addr ipAddr, uint16_t
     clientCfg.tx_func = &clientTxCB;
     clientCfg.clear_rx_func = &clearRxCB;
     clientCfg.rx_func = &clientRxCB;
-    clientCfg.transfer_mode = TRANSFER_MODE_SINGLE;  // TODO: Switch to multiword when implemented
+    clientCfg.transfer_mode = TRANSFER_MODE_MULTIWORD;
+    clientCfg.multiword_scratch_buffer = malloc(CANMORE_ETH_UDP_MAX_LEN);
+    clientCfg.multiword_scratch_len = CANMORE_ETH_UDP_MAX_LEN;
     clientCfg.arg = this;
     clientCfg.timeout_ms = REG_MAPPED_TIMEOUT_MS;
     clientCfg.max_in_flight = REG_MAPPED_MAX_IN_FLIGHT_PACKETS_ETH;
@@ -49,6 +51,9 @@ RegMappedEthernetClient::RegMappedEthernetClient(struct in_addr ipAddr, uint16_t
 RegMappedEthernetClient::~RegMappedEthernetClient() {
     if (socketFd >= 0) {
         close(socketFd);
+    }
+    if (clientCfg.multiword_scratch_buffer) {
+        free(clientCfg.multiword_scratch_buffer);
     }
 }
 

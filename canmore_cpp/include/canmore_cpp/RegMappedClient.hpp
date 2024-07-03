@@ -62,12 +62,15 @@ private:
         REG_MAPPED_ERR_DEF(REG_MAPPED_RESULT_INVALID_REGISTER_MODE)
         REG_MAPPED_ERR_DEF(REG_MAPPED_RESULT_INVALID_DATA)
         REG_MAPPED_ERR_DEF(REG_MAPPED_RESULT_INVALID_MODE)
+        REG_MAPPED_ERR_DEF(REG_MAPPED_RESULT_MULTIWORD_UNSUPPORTED)
+        REG_MAPPED_ERR_DEF(REG_MAPPED_RESULT_MULTIWORD_TOO_LARGE)
 
         REG_MAPPED_ERR_DEF(REG_MAPPED_CLIENT_RESULT_TX_FAIL)
         REG_MAPPED_ERR_DEF(REG_MAPPED_CLIENT_RESULT_RX_FAIL)
         REG_MAPPED_ERR_DEF(REG_MAPPED_CLIENT_RESULT_RX_CLEAR_FAIL)
         REG_MAPPED_ERR_DEF(REG_MAPPED_CLIENT_RESULT_INVALID_ARG)
         REG_MAPPED_ERR_DEF(REG_MAPPED_CLIENT_RESULT_INVALID_BULK_COUNT)
+        REG_MAPPED_ERR_DEF(REG_MAPPED_CLIENT_RESULT_MULTIWORD_ALLOC_TOO_SMALL)
 
         // Fallthrough to this error if none of the other if statements catch it
         return "Unknown Error " + std::to_string(errorCode);
@@ -90,7 +93,6 @@ private:
 class RegMappedClient {
 public:
     virtual ~RegMappedClient() = 0;
-    // TODO: Switch over to std::span and move mode to the constructor
 
     uint32_t readRegister(uint8_t mode, uint8_t page, uint8_t offset);
     void writeRegister(uint8_t mode, uint8_t page, uint8_t offset, uint32_t data);
@@ -156,6 +158,8 @@ public:
     // per client per interface per application The factory will need to be used to check if one exists already, and if
     // so, return it static std::shared_ptr<RegMappedCANClient> create(int ifIndex, uint8_t clientId, uint8_t channel);
     // However if all references are removed, then we can destroy it and recreate it next time its needed
+
+    ~RegMappedCANClient();
 
     void sendRaw(const std::span<const uint8_t> &data);
 

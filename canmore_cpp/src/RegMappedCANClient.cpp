@@ -1,6 +1,7 @@
 #include "canmore_cpp/RegMappedClient.hpp"
 
 #include <chrono>
+#include <stdlib.h>
 
 using namespace Canmore;
 
@@ -15,10 +16,24 @@ RegMappedCANClient::RegMappedCANClient(int ifIndex, uint8_t clientId, uint8_t ch
     clientCfg.tx_func = &clientTxCB;
     clientCfg.clear_rx_func = &clearRxCB;
     clientCfg.rx_func = &clientRxCB;
-    clientCfg.transfer_mode = TRANSFER_MODE_BULK;
     clientCfg.arg = this;
     clientCfg.timeout_ms = REG_MAPPED_TIMEOUT_MS;
     clientCfg.max_in_flight = REG_MAPPED_MAX_IN_FLIGHT_PACKETS_CAN;
+    if (usingCanFd()) {
+        clientCfg.transfer_mode = TRANSFER_MODE_MULTIWORD;
+        clientCfg.multiword_scratch_buffer = malloc(CANFD_MAX_DLEN);
+        clientCfg.multiword_scratch_len = CANFD_MAX_DLEN;
+    }
+    else {
+        clientCfg.transfer_mode = TRANSFER_MODE_BULK;
+        clientCfg.multiword_scratch_buffer = nullptr;
+    }
+}
+
+RegMappedCANClient::~RegMappedCANClient() {
+    if (clientCfg.multiword_scratch_buffer) {
+        free(clientCfg.multiword_scratch_buffer);
+    }
 }
 
 void RegMappedCANClient::sendRaw(const std::span<const uint8_t> &data) {
@@ -59,14 +74,14 @@ bool RegMappedCANClient::clientRx(const std::span<uint8_t> &buf, unsigned int ti
         return false;
     }
 
-    if (frameMailbox->second.size() != buf.size_bytes()) {
+    if (frameMailbox->second.size() < buf.size_bytes()) {
         // Unexpected length
         frameMailbox.reset();
         return false;
     }
 
     // Copy the data and free the mailbox
-    std::copy(frameMailbox->second.begin(), frameMailbox->second.end(), buf.data());
+    std::copy_n(frameMailbox->second.begin(), buf.size_bytes(), buf.data());
     frameMailbox.reset();
 
     return true;

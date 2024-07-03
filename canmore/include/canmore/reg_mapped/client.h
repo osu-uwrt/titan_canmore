@@ -26,7 +26,7 @@ enum reg_mapped_client_transfer_mode {
     /**
      * @brief Perform multiword transfers during array read/writes
      */
-    TRANSFER_MODE_MULTIWORD  // TODO: Implement multiword
+    TRANSFER_MODE_MULTIWORD
 };
 
 /*
@@ -37,6 +37,7 @@ enum reg_mapped_client_transfer_mode {
 #define REG_MAPPED_CLIENT_RESULT_RX_CLEAR_FAIL 0x102
 #define REG_MAPPED_CLIENT_RESULT_INVALID_ARG 0x103
 #define REG_MAPPED_CLIENT_RESULT_INVALID_BULK_COUNT 0x104
+#define REG_MAPPED_CLIENT_RESULT_MULTIWORD_ALLOC_TOO_SMALL 0x105
 
 /**
  * @brief Transmit function prototype
@@ -111,6 +112,21 @@ typedef struct reg_mapped_client_cfg {
      * This must not be greater than the buffer size on the server, or else packets can be lost
      */
     unsigned int max_in_flight;
+
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+    /**
+     * @brief Pointer to a scratch buffer that can be used for multiword transfers.
+     * Must be preallocated (since this doesn't want to do any allocs)
+     */
+    void *multiword_scratch_buffer;
+    /**
+     * @brief The length of the multiword scratch buffer. This indirectly controls the max xfer count
+     * This should be tuned to ensure that the multiword transfers will not exceed the server's max xfer count/buffer
+     * size
+     */
+    size_t multiword_scratch_len;
+#endif
+
 } reg_mapped_client_cfg_t;
 
 /**

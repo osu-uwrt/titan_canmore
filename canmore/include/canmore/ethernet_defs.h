@@ -35,6 +35,10 @@ extern "C" {
 #define CANMORE_ETH_HEARTBEAT_BROADCAST_PORT 2201
 #define CANMORE_ETH_CONTROL_INTERFACE_PORT 2202
 
+// The max permitted UDP packet length to be sent over canmore (this controls the buffer static allocation)
+// Packets sent larger than this length may not be received properly
+#define CANMORE_ETH_UDP_MAX_LEN 512
+
 #ifdef __cplusplus
 }
 #endif

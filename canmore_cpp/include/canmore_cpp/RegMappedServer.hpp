@@ -156,8 +156,10 @@ public:
      * @brief Construct a new Reg Mapped Server object
      *
      * @param interfaceMode The interface mode this server implements (see canmore/protocol.h for more info)
+     * @param multiword_buffer_len The length in bytes of the multiword response buffer (0 to disable multiword)
      */
-    RegMappedServer(uint8_t interfaceMode);
+    RegMappedServer(uint8_t interfaceMode, size_t multiword_buffer_len);
+    ~RegMappedServer();
 
     /**
      * @brief Add a new Register-backed page to the server
@@ -241,10 +243,11 @@ private:
 // Register Mapped Server CAN Implementation
 // ========================================
 
-class RegMappedCANServer : public Canmore::RegMappedServer, public CANSocket {
+class RegMappedCANServer : public CANSocket, public Canmore::RegMappedServer {
 public:
     RegMappedCANServer(int ifIndex, uint8_t clientId, uint8_t channel, uint8_t interfaceMode):
-        RegMappedServer(interfaceMode), CANSocket(ifIndex), clientId(clientId), channel(channel) {
+        CANSocket(ifIndex), RegMappedServer(interfaceMode, usingCanFd() ? CANFD_MAX_DLEN : 0), clientId(clientId),
+        channel(channel) {
         // Configure agent to receive agent to client communication on the control interface channel
         struct can_filter rfilter[] = { { .can_id = CANMORE_CALC_UTIL_ID_A2C(clientId, channel),
                                           .can_mask = (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_SFF_MASK) } };

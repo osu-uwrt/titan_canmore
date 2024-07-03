@@ -1,22 +1,34 @@
 #include "canmore_cpp/RegMappedServer.hpp"
 
+#include <stdlib.h>
+
 using namespace Canmore;
 
 // ========================================
 // Register Mapped Server Class
 // ========================================
 
-RegMappedServer::RegMappedServer(uint8_t interfaceMode) {
+RegMappedServer::RegMappedServer(uint8_t interfaceMode, size_t multiword_buffer_len) {
     // Initialize reg_mapped_server instance
     inst.tx_func = &transmit_cb_wrapper;
     inst.arg = this;
     inst.control_interface_mode = interfaceMode;
+    if (multiword_buffer_len) {
+        inst.multiword_resp_buffer = (reg_mapped_response_t *) malloc(multiword_buffer_len);
+        inst.multiword_resp_buffer_max_count = REG_MAPPED_COMPUTE_MAX_RESP_WORD_COUNT(multiword_buffer_len);
+    }
     // page_array and num_pages will be set in the callback (as the vector is subject to change)
 
     // Zero out required state fields
     inst.bulk_last_seq_num = 0;
     inst.bulk_error_code = 0;
     inst.in_bulk_request = false;
+}
+
+RegMappedServer::~RegMappedServer() {
+    if (inst.multiword_resp_buffer) {
+        free(inst.multiword_resp_buffer);
+    }
 }
 
 void RegMappedServer::addRegisterPage(uint8_t page_num, std::unique_ptr<RegMappedRegisterPage> description) {

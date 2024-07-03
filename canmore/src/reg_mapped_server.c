@@ -1,6 +1,8 @@
 #include "canmore/reg_mapped/protocol.h"
 #include "canmore/reg_mapped/server.h"
 
+#include <string.h>
+
 static uint8_t reg_mapped_server_handle_single_write(reg_mapped_server_inst_t *inst,
                                                      const struct reg_mapped_write_request *req) {
     if (req->page >= inst->num_pages) {
@@ -23,7 +25,7 @@ static uint8_t reg_mapped_server_handle_single_write(reg_mapped_server_inst_t *i
 
         return REG_MAPPED_RESULT_SUCCESSFUL;
     }
-    if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_BYTE) {
+    else if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_BYTE) {
         const unsigned int word_size = sizeof(req->data);
 
         // If the request is completely outside of the region, return invalid address
@@ -114,7 +116,7 @@ static uint8_t reg_mapped_server_handle_single_read(reg_mapped_server_inst_t *in
 
         return REG_MAPPED_RESULT_SUCCESSFUL;
     }
-    if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_BYTE) {
+    else if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_BYTE) {
         const unsigned int word_size = sizeof(*data_out);
 
         // If the request is completely outside of the region, return invalid address
@@ -180,6 +182,128 @@ static uint8_t reg_mapped_server_handle_single_read(reg_mapped_server_inst_t *in
     }
 }
 
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+
+static uint8_t reg_mapped_server_handle_multiword_write(reg_mapped_server_inst_t *inst,
+                                                        const struct reg_mapped_multiword_write_request *req) {
+    if (req->page >= inst->num_pages) {
+        return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+    }
+
+    const reg_mapped_server_page_def_t *page = &inst->page_array[req->page];
+    const size_t word_size = sizeof(req->data[0]);
+
+    if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_WORD) {
+        if (((unsigned int) req->offset) + ((unsigned int) req->count) > page->type.mem_mapped_word.num_words) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+        }
+
+        if (page->type.mem_mapped_word.perm != REGISTER_PERM_READ_WRITE &&
+            page->type.mem_mapped_word.perm != REGISTER_PERM_WRITE_ONLY) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_MODE;
+        }
+
+        // Request good and fits into the area, copy it in
+        memcpy(&page->type.mem_mapped_word.base_addr[req->offset], req->data, req->count * word_size);
+
+        return REG_MAPPED_RESULT_SUCCESSFUL;
+    }
+    else if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_BYTE) {
+        size_t byte_offset = req->offset * word_size;
+        size_t copy_len = req->count * word_size;
+
+        // If the request tries to write completely outside of the region, return invalid address
+        if (byte_offset + copy_len >= page->type.mem_mapped_byte.size + word_size) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+        }
+        // However, we will allow writing partial words (if the byte region is 7 bytes, 2 words/8 bytes can be written)
+        else if (byte_offset + copy_len > page->type.mem_mapped_byte.size) {
+            // Fix up copy_len so we don't try to copy outside the buffer
+            copy_len = page->type.mem_mapped_byte.size - byte_offset;
+        }
+
+        if (page->type.mem_mapped_byte.perm != REGISTER_PERM_READ_WRITE &&
+            page->type.mem_mapped_byte.perm != REGISTER_PERM_WRITE_ONLY) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_MODE;
+        }
+
+        // Everything looks good, copy it in
+        memcpy(&page->type.mem_mapped_byte.base_addr[byte_offset], req->data, copy_len);
+
+        return REG_MAPPED_RESULT_SUCCESSFUL;
+    }
+    else {
+        // page_type is PAGE_TYPE_REGISTER_MAPPED or PAGE_TYPE_UNIMPLEMENTED
+        // Can't do register mapped for multiword, it doesn't make much sense since register mapped can be sparse
+        return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+    }
+}
+
+static uint8_t reg_mapped_server_handle_multiword_read(reg_mapped_server_inst_t *inst,
+                                                       const struct reg_mapped_read_request *req, void *data_out) {
+    // NOTE: data_out is not gaurenteed to be aligned!
+    // Do not cast data_out to a uint32_t pointer!
+
+    if (req->page >= inst->num_pages) {
+        return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+    }
+
+    const reg_mapped_server_page_def_t *page = &inst->page_array[req->page];
+    const size_t word_size = sizeof(uint32_t);
+
+    if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_WORD) {
+        if (((unsigned int) req->offset) + ((unsigned int) req->count) > page->type.mem_mapped_word.num_words) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+        }
+
+        if (page->type.mem_mapped_word.perm != REGISTER_PERM_READ_WRITE &&
+            page->type.mem_mapped_word.perm != REGISTER_PERM_READ_ONLY) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_MODE;
+        }
+
+        // Everything looks good, copy it in
+        memcpy(data_out, &page->type.mem_mapped_word.base_addr[req->offset], req->count * word_size);
+
+        return REG_MAPPED_RESULT_SUCCESSFUL;
+    }
+    else if (page->page_type == PAGE_TYPE_MEMORY_MAPPED_BYTE) {
+        size_t byte_offset = req->offset * word_size;
+        size_t copy_len = req->count * word_size;
+
+        // If the request tries to read completely outside of the region, return invalid address
+        if (byte_offset + copy_len >= page->type.mem_mapped_byte.size + word_size) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+        }
+        // However, we will allow reading partial words (if the byte region is 7 bytes, 2 words/8 bytes can be written)
+        else if (byte_offset + copy_len > page->type.mem_mapped_byte.size) {
+            // Fix up copy_len so we don't try to copy outside the buffer
+            copy_len = page->type.mem_mapped_byte.size - byte_offset;
+        }
+
+        if (page->type.mem_mapped_byte.perm != REGISTER_PERM_READ_WRITE &&
+            page->type.mem_mapped_byte.perm != REGISTER_PERM_READ_ONLY) {
+            return REG_MAPPED_RESULT_INVALID_REGISTER_MODE;
+        }
+
+        // Clear the last word in data_out since memcpy may only be a parital write, don't want any old data remaining
+        if (copy_len % 4 != 0) {
+            memset((void *) (((uintptr_t) data_out) + ((req->count - 1) * word_size)), 0, word_size);
+        }
+
+        // Everything looks good, copy it in
+        memcpy(data_out, &page->type.mem_mapped_byte.base_addr[byte_offset], copy_len);
+
+        return REG_MAPPED_RESULT_SUCCESSFUL;
+    }
+    else {
+        // page_type is PAGE_TYPE_REGISTER_MAPPED or PAGE_TYPE_UNIMPLEMENTED
+        // Can't do register mapped for multiword, it doesn't make much sense since register mapped can be sparse
+        return REG_MAPPED_RESULT_INVALID_REGISTER_ADDRESS;
+    }
+}
+
+#endif
+
 void reg_mapped_server_handle_request(reg_mapped_server_inst_t *inst, const uint8_t *msg, size_t len) {
     if (len < 1) {
         // If request is empty, just return
@@ -202,7 +326,29 @@ void reg_mapped_server_handle_request(reg_mapped_server_inst_t *inst, const uint
     size_t response_size;
 
     // Check message length
-    size_t expected_msg_len = (request_type_write ? sizeof(req->write_pkt) : sizeof(req->read_pkt));
+    size_t expected_msg_len;
+    if (!request_type_write) {
+        // All read requests are the same length
+        expected_msg_len = sizeof(req->read_pkt);
+    }
+    else if (request_type_multiword) {
+        // Must be a multiword write, computation is a little more advanced
+
+        // Need to make sure the message is large enough to read the header before we start accessing members
+        size_t hdr_len = sizeof(req->multiword_write_pkt);
+        if (len < hdr_len) {
+            result_code = REG_MAPPED_RESULT_MALFORMED_REQUEST;
+            goto finish_request;
+        }
+
+        // Compute the real expected message length: header + count * wordlen
+        expected_msg_len = hdr_len + sizeof(req->multiword_write_pkt.data[0]) * req->multiword_write_pkt.count;
+    }
+    else {
+        // Non-multiword write
+        expected_msg_len = sizeof(req->write_pkt);
+    }
+
     if (len != expected_msg_len) {
         result_code = REG_MAPPED_RESULT_MALFORMED_REQUEST;
         goto finish_request;
@@ -233,47 +379,74 @@ void reg_mapped_server_handle_request(reg_mapped_server_inst_t *inst, const uint
     }
 
     if (flags.f.mode != inst->control_interface_mode) {
+        // Make sure this request is using our mode map (in the event a stray request from another mode gets to us)
         result_code = REG_MAPPED_RESULT_INVALID_MODE;
         goto finish_request;
     }
 
-    // Bulk request handling
-    if (request_type_bulk) {
-        if (!inst->in_bulk_request) {
-            // Handle starting new bulk request
-            if (req->write_pkt.count != 0) {
-                // Bulk requests must start with sequence number 0
-                result_code = REG_MAPPED_RESULT_BULK_REQUEST_SEQ_ERROR;
-                goto finish_request;
-            }
-
-            inst->in_bulk_request = true;
-            inst->bulk_error_code = 0;
-            inst->bulk_last_seq_num = 0;
+    if (request_type_multiword) {
+#if CANMORE_CONFIG_DISABLE_MULTIWORD
+        result_code = REG_MAPPED_RESULT_MULTIWORD_UNSUPPORTED;
+#else
+        if (!inst->multiword_resp_buffer) {
+            // If no multiword response buffer is provided, then we can't support multiword mode
+            result_code = REG_MAPPED_RESULT_MULTIWORD_UNSUPPORTED;
+        }
+        // Multiword Request Handling
+        else if (request_type_write) {
+            result_code = reg_mapped_server_handle_multiword_write(inst, &req->multiword_write_pkt);
         }
         else {
-            // Check bulk request sequence number (but only if an error is not set as this will overwrite the last
-            // sequence number with the error)
-            if (inst->bulk_error_code == 0) {
-                inst->bulk_last_seq_num++;
+            if (req->read_pkt.count > inst->multiword_resp_buffer_max_count) {
+                // If trying to read larger than the provided buffer to the instance, return an error
+                result_code = REG_MAPPED_RESULT_MULTIWORD_TOO_LARGE;
+            }
+            else {
+                result_code = reg_mapped_server_handle_multiword_read(
+                    inst, &req->read_pkt, inst->multiword_resp_buffer->multiword_read_pkt.data);
+            }
+        }
+#endif
+    }
+    else {
+        // Single & Bulk Requests
 
-                if (req->write_pkt.count != inst->bulk_last_seq_num) {
+        if (request_type_bulk) {
+            // Bulk request handling
+            if (!inst->in_bulk_request) {
+                // Handle starting new bulk request
+                if (req->write_pkt.count != 0) {
+                    // Bulk requests must start with sequence number 0
                     result_code = REG_MAPPED_RESULT_BULK_REQUEST_SEQ_ERROR;
                     goto finish_request;
                 }
+
+                inst->in_bulk_request = true;
+                inst->bulk_error_code = 0;
+                inst->bulk_last_seq_num = 0;
+            }
+            else {
+                // Check bulk request sequence number (but only if an error is not set as this will overwrite the
+                // last sequence number with the error)
+                if (inst->bulk_error_code == 0) {
+                    inst->bulk_last_seq_num++;
+
+                    if (req->write_pkt.count != inst->bulk_last_seq_num) {
+                        result_code = REG_MAPPED_RESULT_BULK_REQUEST_SEQ_ERROR;
+                        goto finish_request;
+                    }
+                }
             }
         }
-    }
 
-    // TODO: Implement multiword mode
-
-    // If normal request or a bulk request without an error set, perform the transfer
-    if (!inst->in_bulk_request || inst->bulk_error_code == 0) {
-        if (request_type_write) {
-            result_code = reg_mapped_server_handle_single_write(inst, &req->write_pkt);
-        }
-        else {
-            result_code = reg_mapped_server_handle_single_read(inst, &req->read_pkt, &read_data);
+        // If normal request or a bulk request without an error set, perform the transfer
+        if (!inst->in_bulk_request || inst->bulk_error_code == 0) {
+            if (request_type_write) {
+                result_code = reg_mapped_server_handle_single_write(inst, &req->write_pkt);
+            }
+            else {
+                result_code = reg_mapped_server_handle_single_read(inst, &req->read_pkt, &read_data);
+            }
         }
     }
 
@@ -291,7 +464,7 @@ finish_request:
             response_size = sizeof(response.write_bulk_pkt);
 
             // Send response and exit bulk request mode
-#ifdef CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
+#if CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
             inst->tx_func(response.data, response_size);
 #else
             inst->tx_func(response.data, response_size, inst->arg);
@@ -304,20 +477,41 @@ finish_request:
         }
     }
     else {
-        if (request_type_write) {
-            response.write_pkt.result = result_code;
-            response_size = sizeof(response.write_pkt);
+        uint8_t *response_ptr;
+
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+        if (request_type_multiword && !request_type_write && result_code == REG_MAPPED_RESULT_SUCCESSFUL) {
+            // If this is a successful multiword read, we need to send the preallocated response buffer (rather than the
+            // tiny buffer inside our stack)
+            inst->multiword_resp_buffer->multiword_read_pkt.result = result_code;
+            // Data is already filled out
+
+            // Set pointers
+            response_ptr = inst->multiword_resp_buffer->data;
+            response_size = REG_MAPPED_COMPUTE_MULTIWORD_RESP_LEN(req->read_pkt.count);
         }
         else {
-            response.read_pkt.result = result_code;
-            response.read_pkt.data = read_data;
-            response_size = sizeof(response.read_pkt);
-        }
+#endif
+            // Everything else comes from the small response in the stack
+            response_ptr = response.data;
 
-#ifdef CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
-        inst->tx_func(response.data, response_size);
+            if (request_type_write) {
+                response.write_pkt.result = result_code;
+                response_size = sizeof(response.write_pkt);
+            }
+            else {
+                response.read_pkt.result = result_code;
+                response.read_pkt.data = read_data;
+                response_size = sizeof(response.read_pkt);
+            }
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+        }
+#endif
+
+#if CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
+        inst->tx_func(response_ptr, response_size);
 #else
-        inst->tx_func(response.data, response_size, inst->arg);
+        inst->tx_func(response_ptr, response_size, inst->arg);
 #endif
     }
 }

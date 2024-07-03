@@ -69,7 +69,7 @@ struct reg_mapped_server_register_definition;
  *
  * This must be filled out in the reg_mapped_server_inst_t before calling handle_request.
  */
-#ifdef CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
+#if CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
 typedef void (*reg_mapped_server_tx_func)(uint8_t *msg, size_t len);
 #else
 typedef void (*reg_mapped_server_tx_func)(uint8_t *msg, size_t len, void *arg);
@@ -122,7 +122,7 @@ typedef struct reg_mapped_server_register_definition {
         struct {
             enum reg_mapped_server_register_permissions perm;
             reg_mapped_server_register_cb_t callback;
-#ifndef CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
+#if !CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
             void *arg;
 #endif
         } exec;
@@ -170,13 +170,19 @@ typedef struct reg_mapped_server_page_definition {
 typedef struct reg_mapped_server_inst {
     // Must be populated by code calling reg_mapped_server_handle_request
     reg_mapped_server_tx_func tx_func;  // Function called by request handler to transmit responses
-#ifndef CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
+#if !CANMORE_CONFIG_DISABLE_REG_MAPPED_ARG
     void *arg;  // Argument to pass to transmit function
 #endif
     const reg_mapped_server_page_def_t *page_array;  // Array of register mapped pages implemented by the server
     size_t num_pages;                                // Number of elements in page_array
     uint8_t control_interface_mode;  // The mode implemented by the reg mapped server. A packet's mode field must match
                                      // this value to be processed
+
+#if !CANMORE_CONFIG_DISABLE_MULTIWORD
+    reg_mapped_response_t *multiword_resp_buffer;  // Pointer to buffer to send multiword responses
+                                                   // Must be preallocated (since this doesn't want to do any allocs)
+    size_t multiword_resp_buffer_max_count;        // The maximum number of words to put in multiword_resp_buffer
+#endif
 
     // Should be initialized to 0, holds state tracking data
     // This is noot to be modified by the caller of reg_mapped_server_handle_request
